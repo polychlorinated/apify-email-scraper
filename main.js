@@ -16,20 +16,19 @@ await Actor.main(async () => {
     const dataset = await Actor.openDataset();
     const uniqueEmails = new Set();
 
-    // Create RequestList directly
     const requestList = await RequestList.open('start-urls', [startUrl]);
 
     const crawler = new PuppeteerCrawler({
         requestList,
         launchContext: {
             launchOptions: {
-                headless: "new",
+                headless: true,
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
             }
         },
-
         async handlePageFunction({ request, page }) {
-            await page.waitForNetworkIdle({ idleTime: 500 });
+            // Added page load verification
+            await page.waitForSelector('body');
             const html = await page.content();
             const $ = cheerio.load(html);
             
@@ -61,7 +60,6 @@ await Actor.main(async () => {
                 } catch (_) {}
             });
         },
-
         handleFailedRequestFunction: ({ request }) => {
             Actor.log.warning(`Failed: ${request.url}`);
         }
