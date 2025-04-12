@@ -1,4 +1,5 @@
 import { Actor } from 'apify';
+import { PuppeteerCrawler, RequestList } from 'crawlee';
 import * as cheerio from 'cheerio';
 import { URL } from 'url';
 
@@ -15,9 +16,11 @@ await Actor.main(async () => {
     const dataset = await Actor.openDataset();
     const uniqueEmails = new Set();
 
-    const crawler = new Actor.PuppeteerCrawler({
-        requestList: await Actor.openRequestList('start-urls', [startUrl]),
-        
+    // Create RequestList directly
+    const requestList = await RequestList.open('start-urls', [startUrl]);
+
+    const crawler = new PuppeteerCrawler({
+        requestList,
         launchContext: {
             launchOptions: {
                 headless: "new",
