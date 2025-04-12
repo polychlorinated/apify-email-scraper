@@ -33,12 +33,12 @@ await Actor.main(async () => {
     console.log(`Request Delay: ${requestDelay}ms`);
 
     const crawler = new PuppeteerCrawler({
-        // Configuration for Puppeteer
+        // Configuration for Puppeteer (for Crawlee 3.0.4)
         maxConcurrency,
         maxRequestsPerCrawl,
         navigationTimeoutSecs: Math.ceil(timeout / 1000),
-        browserPoolOptions: {
-            puppeteerOptions: {
+        launchContext: {
+            launchOptions: {
                 headless,
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
             }
