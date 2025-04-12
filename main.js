@@ -4,6 +4,13 @@ import * as cheerio from 'cheerio';
 
 const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/gi;
 
+// Use environment variables for configuration
+const maxConcurrency = parseInt(process.env.MAX_CONCURRENCY || '10', 10);
+const maxRequestsPerCrawl = parseInt(process.env.MAX_REQUESTS_PER_CRAWL || '1000', 10);
+const headless = process.env.HEADLESS !== 'false';
+const timeout = parseInt(process.env.TIMEOUT || '30000', 10);
+const requestDelay = parseInt(process.env.REQUEST_DELAY || '500', 10);
+
 await Actor.main(async () => {
     const input = await Actor.getInput();
     const startUrl = input?.url;
@@ -17,29 +24,46 @@ await Actor.main(async () => {
     const uniqueEmails = new Set();
     const baseUrl = new URL(startUrl);
 
-    // Configuration for Puppeteer 15.1.0 with Crawlee 3.0.4
+    console.log('Starting email scraper with configuration:');
+    console.log(`URL: ${startUrl}`);
+    console.log(`Max Concurrency: ${maxConcurrency}`);
+    console.log(`Max Requests: ${maxRequestsPerCrawl}`);
+    console.log(`Headless: ${headless}`);
+    console.log(`Timeout: ${timeout}ms`);
+    console.log(`Request Delay: ${requestDelay}ms`);
+
     const crawler = new PuppeteerCrawler({
-        // The puppeteer config for version 15.1.0
-        launchContext: {
-            launchOptions: {
-                headless: true,
+        // Configuration for Puppeteer
+        maxConcurrency,
+        maxRequestsPerCrawl,
+        navigationTimeoutSecs: Math.ceil(timeout / 1000),
+        browserPoolOptions: {
+            puppeteerOptions: {
+                headless,
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
             }
         },
-        maxConcurrency: 10,
-        maxRequestsPerCrawl: 100,
-        requestHandler: async ({ request, page, crawler }) => {
+        // Handle each page crawled
+        async requestHandler({ request, page, enqueueLinks }) {
             try {
+                // Add delay between requests if configured
+                if (requestDelay > 0) {
+                    await new Promise(resolve => setTimeout(resolve, requestDelay));
+                }
+
+                console.log(`Processing ${request.url}`);
+                
                 // Wait for page content
-                await page.waitForSelector('body', { timeout: 15000 });
+                await page.waitForSelector('body', { timeout });
                 const html = await page.content();
                 const $ = cheerio.load(html);
                 
-                // Process emails
+                // Extract emails from page text
                 const text = $('body').text();
                 const emails = text.match(EMAIL_REGEX) || [];
+                console.log(`Found ${emails.length} emails on ${request.url}`);
                 
-                // Use for...of instead of forEach for async
+                // Store unique emails
                 for (const email of emails) {
                     const cleanEmail = email.toLowerCase();
                     if (!uniqueEmails.has(cleanEmail)) {
@@ -51,31 +75,33 @@ await Actor.main(async () => {
                     }
                 }
 
-                // Process links
-                const links = await page.$$eval('a', anchors => 
-                    anchors.map(a => a.href).filter(href => href)
-                );
-                
-                for (const href of links) {
-                    try {
-                        const url = new URL(href, baseUrl.origin);
-                        if (url.hostname === baseUrl.hostname) {
-                            await crawler.addRequests([url.href]);
+                // Find and queue all same-domain links
+                await enqueueLinks({
+                    strategy: 'same-domain',
+                    transformRequestFunction: (req) => {
+                        // Skip non-http URLs and file downloads
+                        if (!req.url.startsWith('http')) return false;
+                        // Skip common file extensions that won't contain emails
+                        if (/\.(jpg|jpeg|png|gif|svg|webp|mp4|mp3|pdf|zip|rar|doc|docx|xls|xlsx|ppt|pptx)$/i.test(req.url)) {
+                            return false;
                         }
-                    } catch (error) {
-                        Actor.log.warning(`Invalid URL: ${href}`);
+                        return req;
                     }
-                }
+                });
             } catch (error) {
-                Actor.log.error(`Error processing ${request.url}: ${error.message}`);
+                console.error(`Error processing ${request.url}: ${error.message}`);
             }
         },
-        failedRequestHandler: async ({ request }) => {
-            Actor.log.error(`Request failed: ${request.url}`);
+        // Handle request failures
+        failedRequestHandler({ request, error }) {
+            console.error(`Request failed: ${request.url}`, error);
         }
     });
 
+    // Start the crawl
     await crawler.run([startUrl]);
+    
+    // Final statistics
+    console.log(`Scrape complete. Found ${uniqueEmails.size} unique emails.`);
     await Actor.pushData([...uniqueEmails].map(email => ({ email })));
-    Actor.log.info(`Scrape complete. Found ${uniqueEmails.size} emails.`);
 });

@@ -6,7 +6,8 @@
     "apify": "3.1.1",
     "crawlee": "3.0.4",
     "puppeteer": "15.1.0",
-    "cheerio": "1.0.0"
+    "cheerio": "1.0.0",
+    "got-scraping": "3.2.13"
   },
   "scripts": {
     "start": "node main.js"
@@ -16,6 +17,7 @@
   },
   "resolutions": {
     "puppeteer": "15.1.0",
-    "got": "12.5.3"
+    "got": "12.5.3",
+    "got-scraping": "3.2.13"
   }
 }
