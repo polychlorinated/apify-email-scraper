@@ -1,11 +1,19 @@
 FROM apify/actor-node-puppeteer-chrome:18
 
-# Copy package.json and package-lock.json first for better caching
-COPY package*.json ./
-RUN npm install
+# Set working directory
+WORKDIR /usr/src/app
 
-# Copy the rest of the application
+# Copy package.json and package-lock.json
+COPY package*.json ./
+
+# Install dependencies with specific version of npm
+RUN npm install --no-optional
+
+# Copy app source
 COPY . ./
 
-# Set the default command to run the actor
+# Run in production mode
+ENV NODE_ENV=production
+
+# Start the actor
 CMD ["npm", "start"]

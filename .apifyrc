@@ -1,7 +1,7 @@
-
 {
   "actorSpecification": 1,
   "environmentVariables": {
     "NODE_VERSION": "18"
-  }
+  },
+  "version": "1.0.0"
 }

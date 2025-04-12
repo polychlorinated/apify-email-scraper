@@ -18,11 +18,15 @@ await Actor.main(async () => {
     const baseUrl = new URL(startUrl);
 
     const crawler = new PuppeteerCrawler({
-        // Updated to match Puppeteer 20.x API
-        launchOptions: {
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        // Configuration for Puppeteer 20.1.0
+        browserPoolOptions: {
+            puppeteerOptions: {
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox']
+            }
         },
+        maxConcurrency: 10,
+        maxRequestsPerCrawl: 100,
         async requestHandler({ request, page }) {
             try {
                 // Wait for page content
@@ -48,14 +52,14 @@ await Actor.main(async () => {
 
                 // Process links
                 const links = await page.$$eval('a', anchors => 
-                    anchors.map(a => a.href)
+                    anchors.map(a => a.href).filter(href => href)
                 );
                 
                 for (const href of links) {
                     try {
                         const url = new URL(href, baseUrl.origin);
                         if (url.hostname === baseUrl.hostname) {
-                            await crawler.addRequests([href]);
+                            await crawler.addRequests([url.href]);
                         }
                     } catch (error) {
                         Actor.log.warning(`Invalid URL: ${href}`);
