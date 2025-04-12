@@ -1,4 +1,4 @@
-FROM apify/actor-node-puppeteer-chrome:20
+FROM apify/actor-node-puppeteer-chrome:18
 COPY package*.json ./
-RUN npm install && npm audit fix --force
+RUN npm install
 COPY . ./

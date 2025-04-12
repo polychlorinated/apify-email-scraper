@@ -1,71 +1,77 @@
 import { Actor } from 'apify';
-import { PuppeteerCrawler, RequestList } from 'crawlee';
+import { PuppeteerCrawler } from 'crawlee';
 import * as cheerio from 'cheerio';
-import { URL } from 'url';
 
 const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/gi;
 
 await Actor.main(async () => {
     const input = await Actor.getInput();
-    const startUrl = input.url;
+    const startUrl = input?.url;
 
-    if (!startUrl?.startsWith('http')) {
+    // Validate input
+    if (!startUrl || !startUrl.startsWith('http')) {
         throw new Error('Valid URL required');
     }
 
     const dataset = await Actor.openDataset();
     const uniqueEmails = new Set();
-
-    const requestList = await RequestList.open('start-urls', [startUrl]);
+    const baseUrl = new URL(startUrl);
 
     const crawler = new PuppeteerCrawler({
-        requestList,
         launchContext: {
             launchOptions: {
                 headless: true,
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
             }
         },
-        async handlePageFunction({ request, page }) {
-            // Added page load verification
-            await page.waitForSelector('body');
-            const html = await page.content();
-            const $ = cheerio.load(html);
-            
-            const text = $('body').text();
-            const emails = text.match(EMAIL_REGEX) || [];
-
-            for (const email of emails) {
-                const cleanEmail = email.toLowerCase();
-                if (!uniqueEmails.has(cleanEmail)) {
-                    uniqueEmails.add(cleanEmail);
-                    await dataset.pushData({
-                        url: request.url,
-                        email: cleanEmail
-                    });
-                }
-            }
-
-            const baseUrl = new URL(startUrl);
-            $('a').each((i, el) => {
-                const href = $(el).attr('href');
-                try {
-                    const url = new URL(href, baseUrl.origin);
-                    if (url.hostname === baseUrl.hostname) {
-                        crawler.requestQueue.addRequest({
-                            url: href,
-                            userData: { referer: request.url }
+        async requestHandler({ request, page }) {
+            try {
+                // Wait for page content
+                await page.waitForSelector('body', { timeout: 15000 });
+                const html = await page.content();
+                const $ = cheerio.load(html);
+                
+                // Process emails
+                const text = $('body').text();
+                const emails = text.match(EMAIL_REGEX) || [];
+                
+                // Use for...of instead of forEach for async
+                for (const email of emails) {
+                    const cleanEmail = email.toLowerCase();
+                    if (!uniqueEmails.has(cleanEmail)) {
+                        uniqueEmails.add(cleanEmail);
+                        await dataset.pushData({
+                            url: request.url,
+                            email: cleanEmail
                         });
                     }
-                } catch (_) {}
-            });
+                }
+
+                // Process links
+                const links = await page.$$eval('a', anchors => 
+                    anchors.map(a => a.href)
+                );
+                
+                for (const href of links) {
+                    try {
+                        const url = new URL(href, baseUrl.origin);
+                        if (url.hostname === baseUrl.hostname) {
+                            await crawler.addRequests([href]);
+                        }
+                    } catch (error) {
+                        Actor.log.warning(`Invalid URL: ${href}`);
+                    }
+                }
+            } catch (error) {
+                Actor.log.error(`Error processing ${request.url}: ${error.message}`);
+            }
         },
-        handleFailedRequestFunction: ({ request }) => {
-            Actor.log.warning(`Failed: ${request.url}`);
+        failedRequestHandler({ request }) {
+            Actor.log.error(`Request failed: ${request.url}`);
         }
     });
 
-    await crawler.run();
+    await crawler.run([startUrl]);
     await Actor.pushData([...uniqueEmails].map(email => ({ email })));
-    Actor.log.info(`Found ${uniqueEmails.size} emails`);
+    Actor.log.info(`Scrape complete. Found ${uniqueEmails.size} emails.`);
 });
