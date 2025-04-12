@@ -4,7 +4,7 @@
   "description": "Hybrid email scraper",
   "type": "module",
   "dependencies": {
-    "apify": "^3.5.0",
+    "apify": "3.3.2",
     "puppeteer": "^22.8.2",
     "cheerio": "^1.0.0"
   },
