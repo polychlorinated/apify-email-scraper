@@ -17,17 +17,18 @@ await Actor.main(async () => {
     const uniqueEmails = new Set();
     const baseUrl = new URL(startUrl);
 
+    // Configuration for Puppeteer 15.1.0 with Crawlee 3.0.4
     const crawler = new PuppeteerCrawler({
-        // Configuration for Puppeteer 20.1.0
-        browserPoolOptions: {
-            puppeteerOptions: {
+        // The puppeteer config for version 15.1.0
+        launchContext: {
+            launchOptions: {
                 headless: true,
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
             }
         },
         maxConcurrency: 10,
         maxRequestsPerCrawl: 100,
-        async requestHandler({ request, page }) {
+        requestHandler: async ({ request, page, crawler }) => {
             try {
                 // Wait for page content
                 await page.waitForSelector('body', { timeout: 15000 });
@@ -69,7 +70,7 @@ await Actor.main(async () => {
                 Actor.log.error(`Error processing ${request.url}: ${error.message}`);
             }
         },
-        failedRequestHandler({ request }) {
+        failedRequestHandler: async ({ request }) => {
             Actor.log.error(`Request failed: ${request.url}`);
         }
     });

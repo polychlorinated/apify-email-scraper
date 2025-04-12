@@ -6,8 +6,8 @@ WORKDIR /usr/src/app
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
-# Install dependencies with specific version of npm
-RUN npm install --no-optional
+# Install dependencies with legacy-peer-deps to handle compatibility issues
+RUN npm install --legacy-peer-deps
 
 # Copy app source
 COPY . ./
