@@ -14,8 +14,8 @@
   "engines": {
     "node": ">=18 <19"
   },
-  "overrides": {
+  "resolutions": {
     "puppeteer": "15.1.0",
-    "got": "13.0.0"
+    "got": "12.5.3"
   }
 }
