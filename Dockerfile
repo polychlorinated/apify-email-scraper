@@ -7,7 +7,10 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 
 # Install dependencies with legacy-peer-deps to handle compatibility issues
-RUN npm install --legacy-peer-deps
+# Add retry for network reliability
+RUN npm install --legacy-peer-deps --no-optional --network-timeout=100000 || \
+    npm install --legacy-peer-deps --no-optional --network-timeout=100000 || \
+    npm install --legacy-peer-deps --no-optional --network-timeout=100000
 
 # Copy app source
 COPY . ./

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "apify": "3.0.5",
+    "apify": "3.1.1",
     "crawlee": "3.0.4",
     "puppeteer": "15.1.0",
     "cheerio": "1.0.0"
@@ -13,5 +13,8 @@
   },
   "engines": {
     "node": ">=18 <19"
+  },
+  "overrides": {
+    "puppeteer": "15.1.0"
   }
 }
