@@ -1,6 +1,7 @@
+
 {
   "actorSpecification": 1,
   "environmentVariables": {
-    "NODE_VERSION": "20"
+    "NODE_VERSION": "18"
   }
 }

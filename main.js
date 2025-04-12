@@ -18,11 +18,10 @@ await Actor.main(async () => {
     const baseUrl = new URL(startUrl);
 
     const crawler = new PuppeteerCrawler({
-        launchContext: {
-            launchOptions: {
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox']
-            }
+        // Updated to match Puppeteer 20.x API
+        launchOptions: {
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         },
         async requestHandler({ request, page }) {
             try {
