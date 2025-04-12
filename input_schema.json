@@ -1,0 +1,14 @@
+{
+  "title": "Email Scraper",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "url": {
+      "title": "Start URL",
+      "type": "string",
+      "description": "URL to start scraping from",
+      "editor": "textfield"
+    }
+  },
+  "required": ["url"]
+}

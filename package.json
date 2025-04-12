@@ -1,0 +1,13 @@
+{
+  "name": "apify-email-scraper",
+  "version": "1.0.0",
+  "description": "Hybrid email scraper using Puppeteer and Cheerio",
+  "dependencies": {
+    "apify": "^3.0.0",
+    "puppeteer": "^19.0.0",
+    "cheerio": "^1.0.0"
+  },
+  "scripts": {
+    "start": "node main.js"
+  }
+}
