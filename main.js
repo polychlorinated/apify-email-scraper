@@ -167,33 +167,38 @@ await Actor.main(async () => {
                 }
                 
                 // Only enqueue links if we haven't reached the limit
-                if (pagesProcessed < maxRequestsPerCrawl) {
-                    await enqueueLinks({
-                        strategy: 'same-domain',
-                        limit: 10, // Limit links per page
-                        transformRequestFunction: (req) => {
-                            // Skip if we've hit our page limit
-                            if (pagesProcessed >= maxRequestsPerCrawl) return false;
-                            
-                            // Skip non-http URLs
-                            if (!req.url.startsWith('http')) return false;
-                            
-                            // Skip files and media
-                            const skipExtensions = /\.(jpg|jpeg|png|gif|svg|webp|mp4|mp3|pdf|zip|rar|doc|docx|xls|xlsx|ppt|pptx|css|js|ico|xml|json)$/i;
-                            if (skipExtensions.test(req.url)) return false;
-                            
-                            // Skip if already processed
-                            if (processedUrls.has(req.url)) return false;
-                            
-                            // Prioritize pages likely to have contact info
-                            const priorityPaths = /\/(contact|about|team|staff|people|connect|reach|email)/i;
-                            if (priorityPaths.test(req.url)) {
-                                req.priority = 10;
+                if (pagesProcessed < 3) {
+                    // Get current queue stats
+                    const stats = await crawler.requestQueue.getInfo();
+                    const remainingSlots = Math.max(0, 3 - stats.handledRequestCount - stats.pendingRequestCount);
+                    
+                    if (remainingSlots > 0) {
+                        await enqueueLinks({
+                            strategy: 'same-domain',
+                            limit: remainingSlots, // Only enqueue what we can process
+                            transformRequestFunction: (req) => {
+                                // Skip non-http URLs
+                                if (!req.url.startsWith('http')) return false;
+                                
+                                // Skip files and media
+                                const skipExtensions = /\.(jpg|jpeg|png|gif|svg|webp|mp4|mp3|pdf|zip|rar|doc|docx|xls|xlsx|ppt|pptx|css|js|ico|xml|json)$/i;
+                                if (skipExtensions.test(req.url)) return false;
+                                
+                                // Skip if already processed
+                                if (processedUrls.has(req.url)) return false;
+                                
+                                // Prioritize pages likely to have contact info
+                                const priorityPaths = /\/(contact|about|team|staff|people|connect|reach|email)/i;
+                                if (priorityPaths.test(req.url)) {
+                                    req.priority = 10;
+                                }
+                                
+                                return req;
                             }
-                            
-                            return req;
-                        }
-                    });
+                        });
+                    } else {
+                        console.log('Skipping link enqueuing - page limit reached');
+                    }
                 }
                 
             } catch (error) {
