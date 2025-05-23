@@ -3,12 +3,25 @@
   "type": "object",
   "schemaVersion": 1,
   "properties": {
+    "urls": {
+      "title": "URLs to Scrape",
+      "type": "array",
+      "description": "List of URLs to scrape for emails",
+      "editor": "json",
+      "items": {
+        "type": "string",
+        "pattern": "^https?://"
+      }
+    },
     "url": {
-      "title": "Start URL",
+      "title": "Single URL (Legacy)",
       "type": "string",
-      "description": "URL to start scraping from",
+      "description": "Single URL to scrape (for backwards compatibility)",
       "editor": "textfield"
     }
   },
-  "required": ["url"]
+  "oneOf": [
+    { "required": ["urls"] },
+    { "required": ["url"] }
+  ]
 }

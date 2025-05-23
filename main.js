@@ -13,11 +13,11 @@ const requestDelay = parseInt(process.env.REQUEST_DELAY || '0', 10); // No delay
 
 await Actor.main(async () => {
     const input = await Actor.getInput();
-    const startUrl = input?.url;
+    const urls = input?.urls || (input?.url ? [input.url] : []);
 
     // Validate input
-    if (!startUrl || !startUrl.startsWith('http')) {
-        throw new Error('Valid URL required');
+    if (!urls || urls.length === 0) {
+        throw new Error('At least one valid URL required');
     }
 
     const dataset = await Actor.openDataset();
@@ -26,10 +26,32 @@ await Actor.main(async () => {
     let pagesProcessed = 0;
 
     console.log('Starting email scraper with optimized configuration:');
-    console.log(`URL: ${startUrl}`);
-    console.log(`Max Pages: ${maxRequestsPerCrawl}`);
+    console.log(`URLs to process: ${urls.length}`);
+    console.log(`Max Pages per URL: ${maxRequestsPerCrawl}`);
     console.log(`Concurrency: ${maxConcurrency}`);
     console.log(`Timeout: ${timeout}ms`);
+
+    // Process each URL independently
+    const results = [];
+    
+    for (const startUrl of urls) {
+        console.log(`\n--- Processing ${startUrl} ---`);
+        
+        // Validate URL
+        if (!startUrl || !startUrl.startsWith('http')) {
+            console.log(`Skipping invalid URL: ${startUrl}`);
+            results.push({
+                url: startUrl,
+                status: 'failed',
+                error: 'Invalid URL',
+                emails: []
+            });
+            continue;
+        }
+        
+        const urlEmails = new Set();
+        const processedUrls = new Set();
+        let pagesProcessed = 0;
 
     const crawler = new PuppeteerCrawler({
         maxConcurrency,
@@ -132,12 +154,14 @@ await Actor.main(async () => {
                 for (const email of emails) {
                     const cleanEmail = email.toLowerCase().trim();
                     // Basic validation
-                    if (cleanEmail.includes('@') && cleanEmail.includes('.') && !uniqueEmails.has(cleanEmail)) {
+                    if (cleanEmail.includes('@') && cleanEmail.includes('.') && !urlEmails.has(cleanEmail)) {
+                        urlEmails.add(cleanEmail);
                         uniqueEmails.add(cleanEmail);
                         await dataset.pushData({
                             url: url,
                             email: cleanEmail,
-                            foundOn: new Date().toISOString()
+                            foundOn: new Date().toISOString(),
+                            sourceUrl: startUrl
                         });
                     }
                 }
@@ -191,28 +215,50 @@ await Actor.main(async () => {
         }
     });
 
-    // Start the crawl with error handling
-    try {
-        await crawler.run([startUrl]);
-    } catch (error) {
-        console.log(`Crawler finished with error: ${error.message}`);
+        // Start the crawl with error handling
+        try {
+            await crawler.run([startUrl]);
+            results.push({
+                url: startUrl,
+                status: 'success',
+                emails: [...urlEmails],
+                pagesScraped: pagesProcessed
+            });
+        } catch (error) {
+            console.log(`Crawler finished with error: ${error.message}`);
+            results.push({
+                url: startUrl,
+                status: 'failed',
+                error: error.message,
+                emails: [...urlEmails],
+                pagesScraped: pagesProcessed
+            });
+        }
+        
+        console.log(`Completed ${startUrl}: ${urlEmails.size} emails found`);
+        
+        // Push individual URL result immediately
+        await Actor.pushData({
+            type: 'url_result',
+            url: startUrl,
+            emails: [...urlEmails],
+            pagesScraped: pagesProcessed,
+            timestamp: new Date().toISOString()
+        });
     }
     
     // Final results
-    console.log(`\nScrape complete!`);
-    console.log(`Pages processed: ${pagesProcessed}`);
-    console.log(`Unique emails found: ${uniqueEmails.size}`);
+    console.log(`\n=== FINAL SUMMARY ===`);
+    console.log(`Total URLs processed: ${urls.length}`);
+    console.log(`Total unique emails found: ${uniqueEmails.size}`);
     
     // Push final summary
-    if (uniqueEmails.size > 0) {
-        await Actor.pushData({
-            summary: {
-                totalEmails: uniqueEmails.size,
-                emails: [...uniqueEmails],
-                pagesScraped: pagesProcessed,
-                startUrl: startUrl,
-                timestamp: new Date().toISOString()
-            }
-        });
-    }
+    await Actor.pushData({
+        type: 'final_summary',
+        totalUrls: urls.length,
+        totalEmails: uniqueEmails.size,
+        results: results,
+        allEmails: [...uniqueEmails],
+        timestamp: new Date().toISOString()
+    });
 });
