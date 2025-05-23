@@ -6,7 +6,7 @@
     "urls": {
       "title": "URLs to Scrape",
       "type": "array",
-      "description": "List of URLs to scrape for emails",
+      "description": "List of URLs to scrape for emails. You can provide either this field OR the single URL field below, but not both.",
       "editor": "json",
       "items": {
         "type": "string",
@@ -14,14 +14,12 @@
       }
     },
     "url": {
-      "title": "Single URL (Legacy)",
+      "title": "Single URL",
       "type": "string",
-      "description": "Single URL to scrape (for backwards compatibility)",
-      "editor": "textfield"
+      "description": "Single URL to scrape for emails. Use this if you only have one URL, otherwise use the URLs array above.",
+      "editor": "textfield",
+      "pattern": "^https?://"
     }
   },
-  "oneOf": [
-    { "required": ["urls"] },
-    { "required": ["url"] }
-  ]
+  "required": []
 }
