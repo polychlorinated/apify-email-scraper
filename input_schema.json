@@ -1,20 +1,27 @@
 {
-  "title": "Email Scraper",
+  "title": "Email Scraper - Homepage Only",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
     "urls": {
       "title": "URLs to Scrape",
       "type": "array",
-      "description": "List of URLs to scrape for emails. You can provide either this field OR the single URL field below, but not both.",
+      "description": "List of homepage URLs to scrape for emails. Only the exact URLs provided will be scraped.",
       "editor": "json"
     },
     "url": {
       "title": "Single URL",
       "type": "string",
-      "description": "Single URL to scrape for emails. Use this if you only have one URL, otherwise use the URLs array above.",
-      "editor": "textfield",
-      "pattern": "^https?://"
+      "description": "Single homepage URL to scrape for emails.",
+      "editor": "textfield"
+    },
+    "waitForContent": {
+      "title": "Wait for Dynamic Content (seconds)",
+      "type": "integer",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 10,
+      "editor": "number"
     }
   },
   "required": []
