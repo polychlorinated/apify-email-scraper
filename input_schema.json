@@ -7,11 +7,7 @@
       "title": "URLs to Scrape",
       "type": "array",
       "description": "List of URLs to scrape for emails. You can provide either this field OR the single URL field below, but not both.",
-      "editor": "json",
-      "items": {
-        "type": "string",
-        "pattern": "^https?://"
-      }
+      "editor": "json"
     },
     "url": {
       "title": "Single URL",
