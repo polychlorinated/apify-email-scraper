@@ -13,43 +13,45 @@ const requestDelay = parseInt(process.env.REQUEST_DELAY || '0', 10); // No delay
 
 await Actor.main(async () => {
     const input = await Actor.getInput();
-    const urls = input?.urls || (input?.url ? [input.url] : []);
+    
+    // Handle both single URL and array of URLs
+    let urls = [];
+    if (input?.urls && Array.isArray(input.urls)) {
+        urls = input.urls;
+    } else if (input?.url) {
+        urls = [input.url];
+    }
 
     // Validate input
-    if (!urls || urls.length === 0) {
-        throw new Error('At least one valid URL required');
+    if (urls.length === 0) {
+        throw new Error('At least one URL required in either "url" or "urls" field');
     }
 
     const dataset = await Actor.openDataset();
-    const uniqueEmails = new Set();
-    const processedUrls = new Set();
-    let pagesProcessed = 0;
+    const allUniqueEmails = new Set();
 
     console.log('Starting email scraper with optimized configuration:');
     console.log(`URLs to process: ${urls.length}`);
-    console.log(`Max Pages per URL: ${maxRequestsPerCrawl}`);
-    console.log(`Concurrency: ${maxConcurrency}`);
+    console.log(`Max Pages per URL: 3`);
     console.log(`Timeout: ${timeout}ms`);
 
     // Process each URL independently
-    const results = [];
-    
     for (const startUrl of urls) {
         console.log(`\n--- Processing ${startUrl} ---`);
         
         // Validate URL
         if (!startUrl || !startUrl.startsWith('http')) {
             console.log(`Skipping invalid URL: ${startUrl}`);
-            results.push({
+            await dataset.pushData({
+                type: 'error',
                 url: startUrl,
-                status: 'failed',
-                error: 'Invalid URL',
-                emails: []
+                error: 'Invalid URL - must start with http:// or https://',
+                timestamp: new Date().toISOString()
             });
             continue;
         }
         
-        const urlEmails = new Set();
+        const uniqueEmails = new Set();
         const processedUrls = new Set();
         let pagesProcessed = 0;
 
@@ -154,9 +156,9 @@ await Actor.main(async () => {
                 for (const email of emails) {
                     const cleanEmail = email.toLowerCase().trim();
                     // Basic validation
-                    if (cleanEmail.includes('@') && cleanEmail.includes('.') && !urlEmails.has(cleanEmail)) {
-                        urlEmails.add(cleanEmail);
+                    if (cleanEmail.includes('@') && cleanEmail.includes('.') && !uniqueEmails.has(cleanEmail)) {
                         uniqueEmails.add(cleanEmail);
+                        allUniqueEmails.add(cleanEmail);
                         await dataset.pushData({
                             url: url,
                             email: cleanEmail,
@@ -223,47 +225,44 @@ await Actor.main(async () => {
         // Start the crawl with error handling
         try {
             await crawler.run([startUrl]);
-            results.push({
+            console.log(`Completed ${startUrl}: ${uniqueEmails.size} emails found`);
+            
+            // Push result for this URL
+            await dataset.pushData({
+                type: 'url_result',
                 url: startUrl,
                 status: 'success',
-                emails: [...urlEmails],
-                pagesScraped: pagesProcessed
+                emails: [...uniqueEmails],
+                pagesScraped: pagesProcessed,
+                timestamp: new Date().toISOString()
             });
         } catch (error) {
-            console.log(`Crawler finished with error: ${error.message}`);
-            results.push({
+            console.log(`Crawler error for ${startUrl}: ${error.message}`);
+            
+            // Push error result
+            await dataset.pushData({
+                type: 'url_result',
                 url: startUrl,
                 status: 'failed',
                 error: error.message,
-                emails: [...urlEmails],
-                pagesScraped: pagesProcessed
+                emails: [...uniqueEmails],
+                pagesScraped: pagesProcessed,
+                timestamp: new Date().toISOString()
             });
         }
-        
-        console.log(`Completed ${startUrl}: ${urlEmails.size} emails found`);
-        
-        // Push individual URL result immediately
-        await Actor.pushData({
-            type: 'url_result',
-            url: startUrl,
-            emails: [...urlEmails],
-            pagesScraped: pagesProcessed,
-            timestamp: new Date().toISOString()
-        });
     }
     
-    // Final results
+    // Final summary
     console.log(`\n=== FINAL SUMMARY ===`);
     console.log(`Total URLs processed: ${urls.length}`);
-    console.log(`Total unique emails found: ${uniqueEmails.size}`);
+    console.log(`Total unique emails found: ${allUniqueEmails.size}`);
     
     // Push final summary
-    await Actor.pushData({
+    await dataset.pushData({
         type: 'final_summary',
         totalUrls: urls.length,
-        totalEmails: uniqueEmails.size,
-        results: results,
-        allEmails: [...uniqueEmails],
+        totalEmails: allUniqueEmails.size,
+        allEmails: [...allUniqueEmails],
         timestamp: new Date().toISOString()
     });
 });
