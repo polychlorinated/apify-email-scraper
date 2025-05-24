@@ -1,182 +1,249 @@
 import { Actor } from 'apify';
 import { PuppeteerCrawler } from 'crawlee';
+import * as cheerio from 'cheerio';
+
+const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/gi;
+const FACEBOOK_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:facebook\.com|fb\.com)\/[A-Za-z0-9\.\-_]+\/?/gi;
+
+// Use environment variables for configuration
+const maxConcurrency = parseInt(process.env.MAX_CONCURRENCY || '2', 10);
+const headless = process.env.HEADLESS !== 'false';
+const timeout = parseInt(process.env.TIMEOUT || '15000', 10);
 
 await Actor.main(async () => {
-    console.log('Starting email scraper...');
+    const input = await Actor.getInput();
     
-    try {
-        // Get input from user
-        const input = await Actor.getInput();
-        console.log('Input received:', JSON.stringify(input, null, 2));
-        
-        const { urls, url, waitForContent = 3 } = input || {};
-        
-        // Validate input
-        if (!urls && !url) {
-            throw new Error('Please provide either "urls" array or "url" string');
-        }
-        
-        if (urls && url) {
-            throw new Error('Please provide either "urls" OR "url", not both');
-        }
-        
-        // Convert to array for consistent processing
-        const urlsToProcess = urls || [url];
-        console.log(`Processing ${urlsToProcess.length} URLs:`, urlsToProcess);
-        
-        // Validate URLs
-        urlsToProcess.forEach((urlItem, index) => {
-            if (!urlItem || typeof urlItem !== 'string') {
-                throw new Error(`Invalid URL at index ${index}: ${urlItem}`);
-            }
-            if (!urlItem.startsWith('http')) {
-                throw new Error(`URL must start with http:// or https://: ${urlItem}`);
-            }
-        });
-        
-        const results = [];
-        
-        // Email regex patterns
-        const emailPatterns = [
-            /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
-            /mailto:([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})/g
-        ];
-        
-        // Create crawler
-        const crawler = new PuppeteerCrawler({
-            maxRequestsPerCrawl: urlsToProcess.length,
-            requestHandler: async ({ page, request }) => {
-                console.log(`Processing: ${request.url}`);
-                
-                try {
-                    // Wait for page to load completely
-                    await page.waitForNetworkIdle();
-                    await page.waitForTimeout(waitForContent * 1000);
-                    
-                    // Get page content
-                    const content = await page.content();
-                    const textContent = await page.$eval('body', el => el.textContent).catch(() => '');
-                    
-                    // Extract emails
-                    const emails = new Set();
-                    
-                    // Method 1: Search in HTML content
-                    emailPatterns.forEach(pattern => {
-                        const matches = content.match(pattern) || [];
-                        matches.forEach(email => {
-                            const cleanEmail = email.replace('mailto:', '');
-                            if (isValidEmail(cleanEmail)) {
-                                emails.add(cleanEmail);
-                            }
-                        });
-                    });
-                    
-                    // Method 2: Search in visible text
-                    emailPatterns.forEach(pattern => {
-                        const matches = textContent.match(pattern) || [];
-                        matches.forEach(email => {
-                            const cleanEmail = email.replace('mailto:', '');
-                            if (isValidEmail(cleanEmail)) {
-                                emails.add(cleanEmail);
-                            }
-                        });
-                    });
-                    
-                    // Filter and clean emails
-                    const emailArray = Array.from(emails).filter(email => 
-                        isValidEmail(email) && !isExcludedEmail(email)
-                    );
-                    
-                    console.log(`Found ${emailArray.length} valid emails`);
-                    
-                    // Store result
-                    results.push({
-                        url: request.url,
-                        emails: emailArray.length > 0 ? emailArray : ['__NO_EMAILS_FOUND__'],
-                        timestamp: new Date().toISOString(),
-                        totalEmailsFound: emailArray.length
-                    });
-                    
-                } catch (error) {
-                    console.error(`Error processing ${request.url}:`, error.message);
-                    results.push({
-                        url: request.url,
-                        emails: ['__ERROR_OR_TIMEOUT__'],
-                        error: error.message,
-                        timestamp: new Date().toISOString()
-                    });
-                }
-            },
-            
-            // Handle failed requests
-            failedRequestHandler: async ({ request }) => {
-                console.log(`Failed to process: ${request.url}`);
-                results.push({
-                    url: request.url,
-                    emails: ['__ERROR_OR_TIMEOUT__'],
-                    error: 'Request failed',
-                    timestamp: new Date().toISOString()
-                });
-            }
-        });
-        
-        // Add URLs to crawler (no crawling, just exact URLs)
-        await crawler.addRequests(urlsToProcess.map(url => ({ url })));
-        
-        // Run the crawler
-        await crawler.run();
-        
-        // Save results to Apify dataset
-        await Actor.pushData(results);
-        
-        console.log(`Scraping completed. Processed ${results.length} URLs.`);
-        console.log('Results saved to dataset.');
-        
-    } catch (error) {
-        console.error('Actor failed with error:', error);
-        
-        // Save error result so the actor doesn't completely fail
-        await Actor.pushData([{
-            error: error.message,
-            timestamp: new Date().toISOString(),
-            urls: 'failed_to_process'
-        }]);
-        
-        throw error; // Re-throw to mark run as failed
+    // Handle both single URL and array of URLs
+    let urls = [];
+    if (input?.urls && Array.isArray(input.urls)) {
+        urls = input.urls;
+    } else if (input?.url) {
+        urls = [input.url];
     }
+
+    // Validate input
+    if (urls.length === 0) {
+        throw new Error('At least one URL required in either "url" or "urls" field');
+    }
+
+    const dataset = await Actor.openDataset();
+
+    console.log('Starting homepage scraper');
+    console.log(`URLs to process: ${urls.length}`);
+    console.log(`Timeout: ${timeout}ms`);
+
+    // Process results
+    const results = [];
+
+    const crawler = new PuppeteerCrawler({
+        maxConcurrency,
+        navigationTimeoutSecs: Math.ceil(timeout / 1000),
+        requestHandlerTimeoutSecs: Math.ceil(timeout / 1000) + 10,
+        
+        // Optimized browser settings
+        launchContext: {
+            launchOptions: {
+                headless,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu'
+                ]
+            }
+        },
+        
+        // Configure navigation
+        preNavigationHooks: [
+            async ({ request }, gotoOptions) => {
+                gotoOptions.waitUntil = 'domcontentloaded';
+                gotoOptions.timeout = timeout;
+            }
+        ],
+        
+        // Handle each homepage
+        async requestHandler({ request, page }) {
+            const url = request.url;
+            console.log(`Processing: ${url}`);
+            
+            try {
+                // Wait for basic content
+                try {
+                    await page.waitForSelector('body', { timeout: 5000 });
+                } catch (e) {
+                    console.log('Body not found quickly, proceeding anyway...');
+                }
+                
+                // Extract emails using multiple methods
+                const emails = new Set();
+                
+                // Method 1: Get from page text
+                try {
+                    const textContent = await page.evaluate(() => document.body.innerText || document.body.textContent || '');
+                    const textEmails = textContent.match(EMAIL_REGEX) || [];
+                    textEmails.forEach(email => emails.add(email.toLowerCase()));
+                } catch (e) {
+                    console.log('Error getting text content:', e.message);
+                }
+                
+                // Method 2: Get from HTML
+                try {
+                    const html = await page.content();
+                    const $ = cheerio.load(html);
+                    const htmlText = $.text();
+                    const htmlEmails = htmlText.match(EMAIL_REGEX) || [];
+                    htmlEmails.forEach(email => emails.add(email.toLowerCase()));
+                } catch (e) {
+                    console.log('Error parsing HTML:', e.message);
+                }
+                
+                // Method 3: Look for mailto links
+                try {
+                    const mailtoEmails = await page.evaluate(() => {
+                        const links = Array.from(document.querySelectorAll('a[href^="mailto:"]'));
+                        return links.map(link => link.href.replace('mailto:', '').split('?')[0]);
+                    });
+                    mailtoEmails.forEach(email => emails.add(email.toLowerCase()));
+                } catch (e) {
+                    console.log('Error finding mailto links:', e.message);
+                }
+                
+                // Extract Facebook URLs
+                const facebookUrls = new Set();
+                
+                // Method 1: Look for Facebook links in href attributes
+                try {
+                    const fbLinks = await page.evaluate(() => {
+                        const links = Array.from(document.querySelectorAll('a[href*="facebook.com"], a[href*="fb.com"]'));
+                        return links.map(link => link.href);
+                    });
+                    fbLinks.forEach(fbUrl => {
+                        // Clean up Facebook URL
+                        if (fbUrl && (fbUrl.includes('facebook.com') || fbUrl.includes('fb.com'))) {
+                            // Remove tracking parameters
+                            const cleanUrl = fbUrl.split('?')[0].split('#')[0];
+                            facebookUrls.add(cleanUrl);
+                        }
+                    });
+                } catch (e) {
+                    console.log('Error finding Facebook links:', e.message);
+                }
+                
+                // Method 2: Search for Facebook URLs in text/HTML
+                try {
+                    const html = await page.content();
+                    const fbMatches = html.match(FACEBOOK_REGEX) || [];
+                    fbMatches.forEach(fbUrl => {
+                        // Ensure it starts with https://
+                        let cleanUrl = fbUrl;
+                        if (!cleanUrl.startsWith('http')) {
+                            cleanUrl = 'https://' + cleanUrl;
+                        }
+                        cleanUrl = cleanUrl.split('?')[0].split('#')[0];
+                        facebookUrls.add(cleanUrl);
+                    });
+                } catch (e) {
+                    console.log('Error searching for Facebook URLs:', e.message);
+                }
+                
+                // Filter out invalid emails
+                const validEmails = Array.from(emails).filter(email => {
+                    return email.includes('@') && 
+                           email.includes('.') && 
+                           !email.includes('example.com') &&
+                           !email.includes('your-email') &&
+                           !email.includes('@email.com') &&
+                           email.length < 100; // Avoid parsing errors
+                });
+                
+                // Get the most relevant Facebook URL (prefer company pages)
+                const fbUrlArray = Array.from(facebookUrls);
+                const primaryFacebookUrl = fbUrlArray.find(url => 
+                    !url.includes('/sharer') && 
+                    !url.includes('/share') &&
+                    !url.includes('/plugins')
+                ) || fbUrlArray[0] || null;
+                
+                console.log(`Found ${validEmails.length} emails and ${fbUrlArray.length} Facebook URLs`);
+                
+                // Create result
+                const result = {
+                    url: url,
+                    emails: validEmails,
+                    email: validEmails[0] || null, // Primary email
+                    facebookUrl: primaryFacebookUrl,
+                    allFacebookUrls: fbUrlArray,
+                    timestamp: new Date().toISOString(),
+                    success: true
+                };
+                
+                results.push(result);
+                await dataset.pushData(result);
+                
+            } catch (error) {
+                console.error(`Error processing ${url}: ${error.message}`);
+                
+                const errorResult = {
+                    url: url,
+                    emails: [],
+                    email: null,
+                    facebookUrl: null,
+                    allFacebookUrls: [],
+                    error: error.message,
+                    timestamp: new Date().toISOString(),
+                    success: false
+                };
+                
+                results.push(errorResult);
+                await dataset.pushData(errorResult);
+            }
+        },
+        
+        // Handle failures
+        failedRequestHandler({ request, error }) {
+            console.log(`Failed to process ${request.url}: ${error.message}`);
+            
+            const errorResult = {
+                url: request.url,
+                emails: [],
+                email: null,
+                facebookUrl: null,
+                allFacebookUrls: [],
+                error: error.message,
+                timestamp: new Date().toISOString(),
+                success: false
+            };
+            
+            results.push(errorResult);
+            dataset.pushData(errorResult).catch(e => console.error('Failed to push error result:', e));
+        }
+    });
+
+    // Process all URLs
+    try {
+        await crawler.run(urls);
+    } catch (error) {
+        console.log(`Crawler error: ${error.message}`);
+    }
+    
+    // Summary
+    console.log(`\n=== SCRAPING COMPLETE ===`);
+    console.log(`Total URLs processed: ${results.length}`);
+    console.log(`Successful: ${results.filter(r => r.success).length}`);
+    console.log(`Failed: ${results.filter(r => !r.success).length}`);
+    
+    // Push summary
+    const summary = {
+        type: 'summary',
+        totalUrls: results.length,
+        successful: results.filter(r => r.success).length,
+        failed: results.filter(r => !r.success).length,
+        results: results,
+        timestamp: new Date().toISOString()
+    };
+    
+    await dataset.pushData(summary);
 });
-
-// Helper function to validate email format
-function isValidEmail(email) {
-    if (!email || typeof email !== 'string') return false;
-    
-    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}$/;
-    
-    return emailRegex.test(email) && 
-           !email.includes('example.') && 
-           !email.includes('test.') &&
-           !email.includes('.jpg') &&
-           !email.includes('.png') &&
-           !email.includes('.gif') &&
-           email.length < 100 && // Reasonable length limit
-           email.length > 5; // Minimum reasonable length
-}
-
-// Helper function to exclude unwanted emails
-function isExcludedEmail(email) {
-    const excludedDomains = [
-        'revlocal.com', 'webflow.com', 'example.com', 'test.com', 
-        'fake.com', 'localhost', 'sentry.io', 'hotjar.com',
-        'google-analytics.com', 'googletagmanager.com'
-    ];
-    
-    const excludedPrefixes = [
-        'noreply', 'no-reply', 'donotreply', 'admin', 
-        'webmaster', 'postmaster', 'support'
-    ];
-    
-    const lowerEmail = email.toLowerCase();
-    
-    return excludedDomains.some(domain => lowerEmail.includes(domain)) ||
-           excludedPrefixes.some(prefix => lowerEmail.startsWith(prefix));
-}
