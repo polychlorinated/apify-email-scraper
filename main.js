@@ -1,5 +1,5 @@
 import { Actor } from 'apify';
-import { PlaywrightCrawler } from 'crawlee';
+import { PuppeteerCrawler } from 'crawlee';
 
 await Actor.main(async () => {
     console.log('Starting email scraper...');
@@ -43,19 +43,19 @@ await Actor.main(async () => {
         ];
         
         // Create crawler
-        const crawler = new PlaywrightCrawler({
+        const crawler = new PuppeteerCrawler({
             maxRequestsPerCrawl: urlsToProcess.length,
             requestHandler: async ({ page, request }) => {
                 console.log(`Processing: ${request.url}`);
                 
                 try {
                     // Wait for page to load completely
-                    await page.waitForLoadState('networkidle');
+                    await page.waitForNetworkIdle();
                     await page.waitForTimeout(waitForContent * 1000);
                     
                     // Get page content
                     const content = await page.content();
-                    const textContent = await page.textContent('body');
+                    const textContent = await page.$eval('body', el => el.textContent).catch(() => '');
                     
                     // Extract emails
                     const emails = new Set();
